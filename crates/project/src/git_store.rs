@@ -2399,8 +2399,11 @@ impl GitStore {
         let file_path = file.worktree.read(cx).absolutize(&file.path);
         cx.spawn(async move |cx| {
             let provider_registry = cx.update(GitHostingProviderRegistry::default_global);
-            get_permalink_in_rust_registry_src(provider_registry, file_path, selection)
-                .context("no permalink available")
+            cx.background_spawn(async move {
+                get_permalink_in_rust_registry_src(provider_registry, file_path, selection)
+            })
+            .await
+            .context("no permalink available")
         })
     }
 
@@ -10881,7 +10884,7 @@ pub async fn resolve_git_worktree_to_main_repo(fs: &dyn Fs, path: &Path) -> Opti
         return None; // Normal repo, not a linked worktree
     }
     // It's a .git file — parse the gitdir: pointer
-    let content = fs.load(&dot_git).await.ok()?;
+    let content = fs.load_skipping_special_files(&dot_git).await.ok()?;
     let gitdir_rel = content.strip_prefix("gitdir:")?.trim();
     let gitdir_abs = fs.canonicalize(&path.join(gitdir_rel)).await.ok()?;
     // Submodules also use a `.git` file, but they are independent projects whose
@@ -10891,7 +10894,10 @@ pub async fn resolve_git_worktree_to_main_repo(fs: &dyn Fs, path: &Path) -> Opti
         return None;
     }
     // Read commondir to find the main .git directory
-    let commondir_content = fs.load(&gitdir_abs.join("commondir")).await.ok()?;
+    let commondir_content = fs
+        .load_skipping_special_files(&gitdir_abs.join("commondir"))
+        .await
+        .ok()?;
     let common_dir = fs
         .canonicalize(&gitdir_abs.join(commondir_content.trim()))
         .await
@@ -11169,13 +11175,15 @@ fn get_permalink_in_rust_registry_src(
     }
 
     let Some((dir, cargo_vcs_info_json)) = path.ancestors().skip(1).find_map(|dir| {
-        let json = std::fs::read_to_string(dir.join(".cargo_vcs_info.json")).ok()?;
+        let json =
+            util::fs::read_to_string_skipping_special_files(&dir.join(".cargo_vcs_info.json"))
+                .ok()?;
         Some((dir, json))
     }) else {
         bail!("No .cargo_vcs_info.json found in parent directories")
     };
     let cargo_vcs_info = serde_json::from_str::<CargoVcsInfo>(&cargo_vcs_info_json)?;
-    let cargo_toml = std::fs::read_to_string(dir.join("Cargo.toml"))?;
+    let cargo_toml = util::fs::read_to_string_skipping_special_files(&dir.join("Cargo.toml"))?;
     let manifest = toml::from_str::<CargoToml>(&cargo_toml)?;
     let (provider, remote) = parse_git_remote_url(provider_registry, &manifest.package.repository)
         .context("parsing package.repository field of manifest")?;
@@ -11555,6 +11563,9 @@ async fn append_pattern_to_ignore_file(
     file_path: PathBuf,
     pattern: String,
 ) -> Result<()> {
+    if fs.is_special_file(&file_path).await {
+        bail!("{} is not a regular file", file_path.display());
+    }
     let existing_content = match fs.load(&file_path).await {
         Ok(content) => content,
         Err(error)

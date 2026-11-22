@@ -1351,7 +1351,7 @@ impl SettingsObserver {
                     } else {
                         Some(
                             async move {
-                                let content = fs.load(&abs_path).await?;
+                                let content = fs.load_skipping_special_files(&abs_path).await?;
                                 if abs_path.ends_with(local_vscode_tasks_file_relative_path().as_std_path()) {
                                     let vscode_tasks =
                                         parse_json_with_comments::<VsCodeTaskFile>(&content)

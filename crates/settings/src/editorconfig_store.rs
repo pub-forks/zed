@@ -14,7 +14,7 @@ use smallvec::SmallVec;
 use std::{path::Path, str::FromStr, sync::Arc};
 use util::rel_path::RelPath;
 
-use crate::{InvalidSettingsError, LocalSettingsPath, WorktreeId, watch_config_file};
+use crate::{InvalidSettingsError, LocalSettingsPath, WorktreeId, watch_project_config_file};
 
 pub type EditorconfigProperties = ec4rs::Properties;
 
@@ -240,7 +240,7 @@ impl EditorconfigStore {
                     while let Some(dir) = current {
                         let dir_path: Arc<Path> = Arc::from(dir.as_path());
                         let path = dir.join(EDITORCONFIG_NAME);
-                        if fs.load(&path).await.is_ok() {
+                        if fs.load_skipping_special_files(&path).await.is_ok() {
                             paths.push(dir_path);
                         }
                         current = dir.parent().map(|p| p.to_path_buf());
@@ -293,7 +293,7 @@ impl EditorconfigStore {
     ) -> Task<()> {
         let config_path = dir_path.join(EDITORCONFIG_NAME);
         let (mut config_rx, watcher_task) =
-            watch_config_file(cx.background_executor(), fs, config_path);
+            watch_project_config_file(cx.background_executor(), fs, config_path);
 
         cx.spawn(async move |this, cx| {
             let _watcher_task = watcher_task;

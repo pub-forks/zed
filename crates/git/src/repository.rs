@@ -82,7 +82,7 @@ pub fn original_repo_path_from_common_dir(common_dir: &Path) -> Option<PathBuf> 
 
 fn linked_worktree_git_dir(worktree_path: &Path) -> Result<PathBuf> {
     let dot_git_path = worktree_path.join(".git");
-    let git_file = std::fs::read_to_string(&dot_git_path)
+    let git_file = util::fs::read_to_string_skipping_special_files(&dot_git_path)
         .with_context(|| format!("failed to read {}", dot_git_path.display()))?;
     let git_dir = git_file
         .strip_prefix("gitdir:")
@@ -620,7 +620,10 @@ async fn load_commit_object<R: smol::io::AsyncBufRead + Unpin>(
 }
 
 async fn read_shallow_file(shallow_file_path: &Path) -> Result<Option<String>> {
-    match smol::fs::read_to_string(shallow_file_path).await {
+    let shallow_file_path = shallow_file_path.to_path_buf();
+    match smol::unblock(move || util::fs::read_to_string_skipping_special_files(&shallow_file_path))
+        .await
+    {
         Ok(contents) => Ok(Some(contents)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).context("reading shallow file"),
@@ -1879,7 +1882,7 @@ impl GitRepository for RealGitRepository {
     fn merge_message(&self) -> BoxFuture<'_, Option<String>> {
         let path = self.path().join("MERGE_MSG");
         self.executor
-            .spawn(async move { std::fs::read_to_string(&path).ok() })
+            .spawn(async move { util::fs::read_to_string_skipping_special_files(&path).ok() })
             .boxed()
     }
 

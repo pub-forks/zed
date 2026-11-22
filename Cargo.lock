@@ -22099,6 +22099,7 @@ dependencies = [
  "gpui",
  "ignore",
  "language",
+ "libc",
  "log",
  "parking_lot",
  "paths",

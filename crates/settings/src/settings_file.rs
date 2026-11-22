@@ -173,30 +173,15 @@ pub fn watch_config_file(
     fs: Arc<dyn Fs>,
     path: PathBuf,
 ) -> (mpsc::UnboundedReceiver<String>, gpui::Task<()>) {
-    let (tx, rx) = mpsc::unbounded();
-    let task = executor.spawn(async move {
-        let path = fs.canonicalize(&path).await.unwrap_or_else(|_| path);
-        let (events, _) = fs.watch(&path, Duration::from_millis(100)).await;
-        futures::pin_mut!(events);
+    watch_file(executor, fs, path, false)
+}
 
-        let contents = fs.load(&path).await.unwrap_or_default();
-        if tx.unbounded_send(contents).is_err() {
-            return;
-        }
-
-        loop {
-            if events.next().await.is_none() {
-                break;
-            }
-
-            if let Ok(contents) = fs.load(&path).await
-                && tx.unbounded_send(contents).is_err()
-            {
-                break;
-            }
-        }
-    });
-    (rx, task)
+pub fn watch_project_config_file(
+    executor: &BackgroundExecutor,
+    fs: Arc<dyn Fs>,
+    path: PathBuf,
+) -> (mpsc::UnboundedReceiver<String>, gpui::Task<()>) {
+    watch_file(executor, fs, path, true)
 }
 
 pub fn watch_config_dir(
@@ -280,4 +265,43 @@ pub fn update_settings_file_with_completion(
     update: impl 'static + Send + FnOnce(&mut SettingsContent, &App),
 ) -> futures::channel::oneshot::Receiver<anyhow::Result<()>> {
     SettingsStore::global(cx).update_settings_file_with_completion(fs, update)
+}
+
+fn watch_file(
+    executor: &BackgroundExecutor,
+    fs: Arc<dyn Fs>,
+    path: PathBuf,
+    skip_special_files: bool,
+) -> (mpsc::UnboundedReceiver<String>, gpui::Task<()>) {
+    let (tx, rx) = mpsc::unbounded();
+    let task = executor.spawn(async move {
+        let path = fs.canonicalize(&path).await.unwrap_or_else(|_| path);
+        let (events, _) = fs.watch(&path, Duration::from_millis(100)).await;
+        futures::pin_mut!(events);
+        let load = async || {
+            if skip_special_files {
+                fs.load_skipping_special_files(&path).await
+            } else {
+                fs.load(&path).await
+            }
+        };
+
+        let contents = load().await.unwrap_or_default();
+        if tx.unbounded_send(contents).is_err() {
+            return;
+        }
+
+        loop {
+            if events.next().await.is_none() {
+                break;
+            }
+
+            if let Ok(contents) = load().await
+                && tx.unbounded_send(contents).is_err()
+            {
+                break;
+            }
+        }
+    });
+    (rx, task)
 }

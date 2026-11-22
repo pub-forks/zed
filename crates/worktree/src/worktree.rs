@@ -3871,7 +3871,7 @@ async fn build_gitignore(abs_path: &Path, fs: &dyn Fs) -> Result<Gitignore> {
 
 async fn build_gitignore_with_root(abs_path: &Path, root: &Path, fs: &dyn Fs) -> Result<Gitignore> {
     let contents = fs
-        .load(abs_path)
+        .load_skipping_special_files(abs_path)
         .await
         .with_context(|| format!("failed to load gitignore file at {}", abs_path.display()))?;
     let mut builder = GitignoreBuilder::new(root);
@@ -7531,7 +7531,7 @@ async fn read_root_repo_metadata(
     let (repository_dir, common_dir) = if dot_git_metadata.is_dir {
         (dot_git_abs_path.clone(), dot_git_abs_path)
     } else {
-        let gitfile = fs.load(&dot_git_abs_path).await?;
+        let gitfile = fs.load_skipping_special_files(&dot_git_abs_path).await?;
         let repository_dir = resolve_gitfile_path(&dot_git_abs_path, parse_gitfile(&gitfile)?);
         let repository_dir = Arc::<Path>::from(fs.canonicalize(&repository_dir).await?);
         let commondir = if is_submodule_git_dir(&repository_dir) {
@@ -7684,7 +7684,7 @@ async fn canonicalize_existing_prefix(abs_path: &Path, fs: &dyn Fs) -> Result<Pa
 }
 
 async fn load_bytes_if_exists(abs_path: &Path, fs: &dyn Fs) -> Result<Option<Vec<u8>>> {
-    match fs.load_bytes(abs_path).await {
+    match fs.load_bytes_skipping_special_files(abs_path).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error)
             if error
@@ -7702,7 +7702,7 @@ async fn discover_git_paths(dot_git_abs_path: &Arc<Path>, fs: &dyn Fs) -> (Arc<P
     let mut common_dir_abs_path = dot_git_abs_path.clone();
 
     if let Some(path) = fs
-        .load(dot_git_abs_path)
+        .load_skipping_special_files(dot_git_abs_path)
         .await
         .ok()
         .as_ref()
@@ -7713,7 +7713,10 @@ async fn discover_git_paths(dot_git_abs_path: &Arc<Path>, fs: &dyn Fs) -> (Arc<P
             repository_dir_abs_path = Path::new(&path).into();
             common_dir_abs_path = repository_dir_abs_path.clone();
 
-            if let Some(commondir_contents) = fs.load(&path.join("commondir")).await.ok()
+            if let Some(commondir_contents) = fs
+                .load_skipping_special_files(&path.join("commondir"))
+                .await
+                .ok()
                 && let Some(commondir_path) = fs
                     .canonicalize(&resolve_commondir_path(&path, &commondir_contents))
                     .await

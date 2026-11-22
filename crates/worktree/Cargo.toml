@@ -71,5 +71,8 @@ util = { workspace = true, features = ["test-support"] }
 worktree = { workspace = true, features = ["test-support"] }
 zlog.workspace = true
 
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
 [package.metadata.cargo-shear]
 ignored = ["tracing"]

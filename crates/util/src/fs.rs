@@ -1,7 +1,10 @@
 use crate::ResultExt;
 use async_fs as fs;
 use futures_lite::StreamExt;
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 /// Removes all files and directories matching the given predicate
 pub async fn remove_matching<F>(dir: &Path, predicate: F)
@@ -66,4 +69,28 @@ pub async fn make_file_executable(path: &Path) -> std::io::Result<()> {
 /// This is a noop for non-unix platforms.
 pub async fn make_file_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+pub fn read_skipping_special_files(path: &Path) -> io::Result<Vec<u8>> {
+    if is_special_file(path) {
+        return Ok(Vec::new());
+    }
+    std::fs::read(path)
+}
+
+pub fn read_to_string_skipping_special_files(path: &Path) -> io::Result<String> {
+    if is_special_file(path) {
+        return Ok(String::new());
+    }
+    std::fs::read_to_string(path)
+}
+
+#[cfg(unix)]
+pub fn is_special_file(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|metadata| !metadata.is_file() && !metadata.is_dir())
+}
+
+#[cfg(not(unix))]
+pub fn is_special_file(_path: &Path) -> bool {
+    false
 }

@@ -154,6 +154,15 @@ pub trait Fs: Send + Sync {
         Ok(String::from_utf8(self.load_bytes(path).await?)?)
     }
     async fn load_bytes(&self, path: &Path) -> Result<Vec<u8>>;
+    async fn load_bytes_skipping_special_files(&self, path: &Path) -> Result<Vec<u8>> {
+        self.load_bytes(path).await
+    }
+    async fn load_skipping_special_files(&self, path: &Path) -> Result<String> {
+        self.load(path).await
+    }
+    async fn is_special_file(&self, _path: &Path) -> bool {
+        false
+    }
     async fn atomic_write(&self, path: PathBuf, text: String) -> Result<()>;
     async fn save(&self, path: &Path, text: &Rope, line_ending: LineEnding) -> Result<()>;
     async fn write(&self, path: &Path, content: &[u8]) -> Result<()>;
@@ -1086,6 +1095,32 @@ impl Fs for RealFs {
             .spawn(async move { std::fs::read(path) })
             .await?;
         Ok(bytes)
+    }
+
+    async fn load_skipping_special_files(&self, path: &Path) -> Result<String> {
+        let path = path.to_path_buf();
+        self.executor
+            .spawn(async move {
+                util::fs::read_to_string_skipping_special_files(&path)
+                    .with_context(|| format!("Failed to read file {}", path.display()))
+            })
+            .await
+    }
+
+    async fn load_bytes_skipping_special_files(&self, path: &Path) -> Result<Vec<u8>> {
+        let path = path.to_path_buf();
+        let bytes = self
+            .executor
+            .spawn(async move { util::fs::read_skipping_special_files(&path) })
+            .await?;
+        Ok(bytes)
+    }
+
+    async fn is_special_file(&self, path: &Path) -> bool {
+        let path = path.to_path_buf();
+        self.executor
+            .spawn(async move { util::fs::is_special_file(&path) })
+            .await
     }
 
     #[cfg(not(target_os = "windows"))]
